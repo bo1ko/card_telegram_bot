@@ -106,8 +106,11 @@ async def callback_card(callback: CallbackQuery, session: AsyncSession):
     photo = FSInputFile(card.image, filename="card.jpg")
     btns = get_callback_btns(
         btns={
+            "Редактировать описание": f"edit_card_{card.pk}",
+            "Удалить": f"delete_card_{card.pk}",
             "Назад": "edit_cards",
-        }
+        },
+        sizes=(1,),
     )
 
     await callback.message.delete()
@@ -116,11 +119,58 @@ async def callback_card(callback: CallbackQuery, session: AsyncSession):
     )
 
 
+class EditDesc(StatesGroup):
+    description = State()
+
+
+# EDIT CARD DESCRIPTION
+@admin_router.callback_query(F.data.startswith("edit_card_"))
+async def callback_edit_card(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
+    pk = int(callback.data.split("_")[2])
+    card = await orm.orm_read(session=session, model=Card, pk=pk)
+
+    await callback.answer()
+    await callback.message.answer(text="Введите новое описание")
+    await state.set_data({"card": card})
+    await state.set_state(EditDesc.description)
+
+
+# EDIT CARD STATE DESCRIPTION
+@admin_router.message(EditDesc.description)
+async def edit_card_description(
+    message: Message, state: FSMContext, session: AsyncSession
+):
+    data = await state.get_data()
+    card = data["card"]
+    await orm.orm_update(
+        session=session, model=Card, pk=card.pk, data={"description": message.text}
+    )
+    await message.answer("Описание изменено")
+    await edit_cards(message, session=session)
+
+
+# DELETE CARD
+@admin_router.callback_query(F.data.startswith("delete_card_"))
+async def callback_delete_card(callback: CallbackQuery, session: AsyncSession):
+    pk = int(callback.data.split("_")[2])
+    await orm.orm_delete(session=session, model=Card, pk=pk)
+    result = await callback.message.delete()
+
+    if result:
+        await callback.answer("Карточка удалена")
+        await edit_cards(callback.message, session=session)
+    else:
+        await callback.answer("Виникла помилка 😞...")
+
+
 class AddCard(StatesGroup):
     description = State()
     image = State()
 
 
+# ADD CARD
 @admin_router.callback_query(F.data == "add_card")
 async def callback_add_card(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text="Введите описание карточки")
@@ -128,6 +178,7 @@ async def callback_add_card(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AddCard.description)
 
 
+# ADD CARD STATE DESCRIPTION
 @admin_router.message(AddCard.description)
 async def add_card_description(message: Message, state: FSMContext):
     await state.update_data(description=message.text)
@@ -135,6 +186,7 @@ async def add_card_description(message: Message, state: FSMContext):
     await state.set_state(AddCard.image)
 
 
+# ADD CARD STATE IMAGE
 @admin_router.message(AddCard.image, F.photo)
 async def add_card_image(message: Message, state: FSMContext, session: AsyncSession):
     desc = await state.get_value("description")

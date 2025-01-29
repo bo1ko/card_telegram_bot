@@ -23,9 +23,9 @@ async def orm_read(session: AsyncSession, model: object, pk: int = None):
 
 async def orm_update(session: AsyncSession, model: object, pk: int, data: dict):
     await session.execute(update(model).where(model.pk == pk).values(**data))
-    await session.commit()
+    return await session.commit()
 
 
 async def orm_delete(session: AsyncSession, model: object, pk: int):
     await session.execute(delete(model).where(model.pk == pk))
-    await session.commit()
+    return await session.commit()
