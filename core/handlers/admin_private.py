@@ -29,15 +29,15 @@ admin_main_kb = get_callback_btns(
     },
 )
 
-DAYS = {
-    "Понедельник": "0",
-    "Вторник": "1",
-    "Среда": "2",
-    "Четверг": "3",
-    "Пятница": "4",
-    "Суббота": "5",
-    "Воскресенье": "6",
-}
+DAYS = [
+    "Понедельник",
+    "Вторник",
+    "Среда",
+    "Четверг",
+    "Пятница",
+    "Суббота",
+    "Воскресенье",
+]
 
 
 @admin_router.message(Command("admin"))
@@ -362,10 +362,7 @@ async def callback_change_time(callback: CallbackQuery, state: FSMContext):
             text=f"Выберите время. Текущее время: {hour:02d}:00",
             reply_markup=get_callback_btns(
                 btns=hour_btns,
-                sizes=(
-                    1,
-                    3,
-                ),
+                sizes=(1, 3),
             ),
         )
     else:
@@ -403,12 +400,43 @@ async def callback_change_time(callback: CallbackQuery, state: FSMContext):
 async def callback_change_days(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
+    with open("config.json", "r") as f:
+        data = json.load(f)
+
+    days = data.get("notification_days")
+    days_btns = {"Назад": "edit_notifications"}
+
+    for i, day in enumerate(DAYS):
+        if str(i) in days:
+            days_btns[f"{day} ✅"] = f"change_day_{i}"
+        else:
+            days_btns[day] = f"change_day_{i}"
 
     btns = get_callback_btns(
-        btns={
-            "Назад": "edit_notifications",
-        },
-        sizes=(1,),
+        btns=days_btns,
+        sizes=(1, 2),
     )
 
     await callback.message.edit_text(text="Выберите дни", reply_markup=btns)
+
+
+# SELECT DAY
+@admin_router.callback_query(F.data.startswith("change_day_"))
+async def callback_change_day_status(callback: CallbackQuery, state: FSMContext):
+    day = callback.data.split("_")[2]
+
+    with open("config.json", "r") as f:
+        data = json.load(f)
+
+    if data.get("notification_days") is None:
+        data["notification_days"] = [day]
+    elif day not in data["notification_days"]:
+        data["notification_days"].append(day)
+    else:
+        data["notification_days"].remove(day)
+
+    with open("config.json", "w") as f:
+        json.dump(data, f)
+
+    await callback.answer("День изменен")
+    await callback_change_days(callback, state)
