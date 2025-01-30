@@ -3,6 +3,7 @@ import logging
 import os
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommandScopeAllPrivateChats
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
@@ -15,8 +16,9 @@ from core.database.engine import create_db, drop_db, session_maker
 
 from core.handlers.user_private import user_router
 from core.handlers.admin_private import admin_router
+from core.common.admin_cmds_list import set_admin_commands
+from core.common.user_cmds_list import private as user_cmds
 
-# from common.bot_cmds_list import private
 
 load_dotenv(find_dotenv())
 
@@ -60,6 +62,7 @@ async def main():
     dp.update.middleware(DataBaseSession(session_pool=session_maker))
 
     await bot.delete_webhook(drop_pending_updates=True)
+    await bot.set_my_commands(commands=user_cmds, scope=BotCommandScopeAllPrivateChats())
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 

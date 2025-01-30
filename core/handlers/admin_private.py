@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 from aiogram import Bot, Router, types, F
@@ -7,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database.models import User, UserCard, Card
+from core.database.models import User, Card
 from core.database import orm_query as orm
 from core.filters import IsAdmin
 
@@ -27,6 +28,16 @@ admin_main_kb = get_callback_btns(
         "Статистика": "statistics",
     },
 )
+
+DAYS = {
+    "Понедельник": "0",
+    "Вторник": "1",
+    "Среда": "2",
+    "Четверг": "3",
+    "Пятница": "4",
+    "Суббота": "5",
+    "Воскресенье": "6",
+}
 
 
 @admin_router.message(Command("admin"))
@@ -65,7 +76,7 @@ async def callback_edit_cards(
     btns["Добавить карточку"] = "add_card"
     btns["Назад"] = "admin"
 
-    if callback.message.content_type == F.photo:
+    if callback.message.photo:
         await callback.message.delete()
         await callback.message.answer(
             text=text, reply_markup=get_callback_btns(btns=btns, sizes=(1,))
@@ -209,3 +220,195 @@ async def add_card_image(message: Message, state: FSMContext, session: AsyncSess
 
     await state.clear()
     await edit_cards(message, session, text="Карточка добавлена")
+
+
+@admin_router.callback_query(F.data == "external_links")
+async def callback_external_links(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+
+    btns = get_callback_btns(
+        btns={
+            "Купить карты": "buy_cards_link",
+            "Дать полный расклад карт": "full_card_link",
+            "Назад": "admin",
+        },
+        sizes=(1,),
+    )
+
+    await callback.message.edit_text(text="Изменить ссылку для...", reply_markup=btns)
+
+
+class ChangeLink(StatesGroup):
+    link_buy_cards = State()
+    link_full_pack = State()
+
+
+back_to_external_links = get_callback_btns(
+    btns={
+        "Назад": "external_links",
+    },
+    sizes=(1,),
+)
+
+
+@admin_router.callback_query(F.data == "buy_cards_link")
+async def callback_buy_cards_link(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        text="Введите ссылку", reply_markup=back_to_external_links
+    )
+    await state.set_state(ChangeLink.link_buy_cards)
+
+
+@admin_router.message(ChangeLink.link_buy_cards)
+async def change_buy_cards_link(
+    message: Message, state: FSMContext, session: AsyncSession
+):
+    url = message.text
+
+    if not url.startswith("https://") and not url.startswith("http://"):
+        await message.answer(
+            "Введите корректную ссылку", reply_markup=back_to_external_links
+        )
+        await state.set_state(ChangeLink.link_buy_cards)
+        return
+
+    try:
+        with open("config.json", "r") as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        data = {}
+
+    data["buy_cards_link"] = url
+
+    with open("config.json", "w") as f:
+        json.dump(data, f)
+
+    await message.answer("Ссылка изменена")
+    await admin_features(message, state)
+
+
+@admin_router.callback_query(F.data == "full_card_link")
+async def callback_full_card_link(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        text="Введите ссылку", reply_markup=back_to_external_links
+    )
+    await state.set_state(ChangeLink.link_full_pack)
+
+
+@admin_router.message(ChangeLink.link_full_pack)
+async def change_full_card_link(
+    message: Message, state: FSMContext, session: AsyncSession
+):
+    url = message.text
+
+    if not url.startswith("https://") and not url.startswith("http://"):
+        await message.answer(
+            "Введите корректную ссылку", reply_markup=back_to_external_links
+        )
+        await state.set_state(ChangeLink.link_full_pack)
+        return
+
+    try:
+        with open("config.json", "r") as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        data = {}
+
+    data["full_card_link"] = url
+
+    with open("config.json", "w") as f:
+        json.dump(data, f)
+
+    await message.answer("Ссылка изменена")
+    await admin_features(message, state)
+
+
+# NOTIFICATIONS
+@admin_router.callback_query(F.data == "edit_notifications")
+async def callback_edit_notifications(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+
+    btns = get_callback_btns(
+        btns={
+            "Изменить время": "change_time",
+            "Изменить дни": "change_days",
+            "Назад": "admin",
+        },
+        sizes=(1,),
+    )
+
+    await callback.message.edit_text(text="Что хотите сделать?", reply_markup=btns)
+
+
+# CHANGE TIME MENU
+@admin_router.callback_query(F.data == "change_time")
+async def callback_change_time(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+
+    hour_btns = {
+        "Назад": "edit_notifications",
+    }
+
+    for hour in range(6, 23):  # Від 6:00 до 22:00 (22 включно)
+        hour_btns[f"{hour:02d}:00"] = f"change_time_{hour}"
+
+    with open("config.json", "r") as f:
+        data = json.load(f)
+
+    hour = data.get("notification_time")
+
+    if hour:
+        await callback.message.edit_text(
+            text=f"Выберите время. Текущее время: {hour:02d}:00",
+            reply_markup=get_callback_btns(
+                btns=hour_btns,
+                sizes=(
+                    1,
+                    3,
+                ),
+            ),
+        )
+    else:
+        await callback.message.edit_text(
+            text="Выберите время",
+            reply_markup=get_callback_btns(
+                btns=hour_btns,
+                sizes=(
+                    1,
+                    3,
+                ),
+            ),
+        )
+
+
+# SELECT TIME
+@admin_router.callback_query(F.data.startswith("change_time_"))
+async def callback_change_time(callback: CallbackQuery, state: FSMContext):
+    hour = int(callback.data.split("_")[2])
+
+    with open("config.json", "r") as f:
+        data = json.load(f)
+
+    data["notification_time"] = hour
+
+    with open("config.json", "w") as f:
+        json.dump(data, f)
+
+    await callback.answer("Время изменено")
+    await callback_admin_features(callback, state)
+
+
+# CHANGE DAYS MENU
+@admin_router.callback_query(F.data == "change_days")
+async def callback_change_days(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+
+
+    btns = get_callback_btns(
+        btns={
+            "Назад": "edit_notifications",
+        },
+        sizes=(1,),
+    )
+
+    await callback.message.edit_text(text="Выберите дни", reply_markup=btns)

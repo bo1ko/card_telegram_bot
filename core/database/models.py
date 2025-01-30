@@ -1,4 +1,4 @@
-from sqlalchemy import DateTime, Float, String, Text, BigInteger, func, ForeignKey
+from sqlalchemy import DateTime, Float, String, Text, BigInteger, func, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from datetime import datetime
 
@@ -14,12 +14,12 @@ class User(Base):
     __tablename__ = "user"
 
     pk: Mapped[int] = mapped_column(primary_key=True)
-    tg_id: Mapped[int] = mapped_column(unique=True)
+    tg_id: Mapped[int] = mapped_column(BigInteger, unique=True)
+    username: Mapped[str] = mapped_column(String(100), nullable=True)
     subscription: Mapped[bool] = mapped_column(default=False)
-    requests: Mapped[int] = mapped_column(default=0)
     last_request: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-
-    cards: Mapped[list["UserCard"]] = relationship(back_populates="user")
+    requests: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
+    cards: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
 
 
 class Card(Base):
@@ -28,15 +28,3 @@ class Card(Base):
     pk: Mapped[int] = mapped_column(primary_key=True)
     description: Mapped[str] = mapped_column(Text)
     image: Mapped[str] = mapped_column(String(100))
-    users: Mapped[list["UserCard"]] = relationship(back_populates="card")
-
-
-class UserCard(Base):
-    __tablename__ = "user_card"
-
-    pk: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.pk"))
-    card_id: Mapped[int] = mapped_column(ForeignKey("card.pk"))
-
-    user: Mapped["User"] = relationship(back_populates="cards")
-    card: Mapped["Card"] = relationship(back_populates="users")
