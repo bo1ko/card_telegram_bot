@@ -5,18 +5,19 @@ import json
 import os
 
 from datetime import datetime
-from aiogram import Bot, Router, types, F
+from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from core.database.models import User, Card
 from core.database import orm_query as orm
 from core.filters import IsAdmin
 from core.keyboards import get_callback_btns
-
+from services.scheduler import get_random_card
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,9 @@ admin_main_kb = get_callback_btns(
         "Карты": "edit_cards",
         "Уведомления": "edit_notifications",
         "Лимиты": "edit_limits",
-        "Внешные ссылки": "external_links",
+        "Внешние ссылки": "external_links",
+        "/help": "edit_help",
+        "/start": "edit_start",
         "Статистика": "statistics",
     },
 )
@@ -43,6 +46,8 @@ DAYS = [
     "Суббота",
     "Воскресенье",
 ]
+
+scheduler = AsyncIOScheduler()
 
 
 @admin_router.message(Command("admin"))
@@ -423,6 +428,7 @@ async def callback_edit_notifications(callback: CallbackQuery, state: FSMContext
             btns={
                 "Изменить время": "change_time",
                 "Изменить дни": "change_days",
+                "Статус рассылки": "status_scheduler",
                 "Назад": "admin",
             },
             sizes=(1,),
@@ -431,6 +437,124 @@ async def callback_edit_notifications(callback: CallbackQuery, state: FSMContext
         await callback.message.edit_text(text="Что хотите сделать?", reply_markup=btns)
     except Exception:
         logger.error("Error in callback_edit_notifications")
+        logger.error(traceback.format_exc())
+        await callback.message.answer("Произошла ошибка 😞...")
+
+
+# STATUS SCHEDULER
+@admin_router.callback_query(F.data == "status_scheduler")
+async def callback_status_scheduler(callback: CallbackQuery):
+    try:
+        with open("config.json", "r") as f:
+            data = json.load(f)
+
+        status = data.get("scheduler_status", False)
+
+        if status:
+            btns = {
+                "Выключить": "disable_scheduler",
+                "Назад": "edit_notifications",
+            }
+        else:
+            btns = {
+                "Включить": "enable_scheduler",
+                "Назад": "edit_notifications",
+            }
+
+        scheduler_btns = get_callback_btns(
+            btns=btns,
+            sizes=(1,),
+        )
+
+        await callback.message.edit_text(
+            text=f"Статус рассылки: {'✅' if status else '❌'}",
+            reply_markup=scheduler_btns,
+        )
+    except Exception:
+        logger.error("Error in callback_status_scheduler")
+        logger.error(traceback.format_exc())
+        await callback.message.answer("Произошла ошибка 😞...")
+
+
+@admin_router.callback_query(F.data == "enable_scheduler")
+async def callback_enable_scheduler(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+):
+    try:
+        logger.info("Enabling scheduler...")
+
+        if scheduler.running:
+            scheduler.remove_all_jobs()
+            scheduler.shutdown(wait=False)
+            logger.info("Scheduler stopped before enabling.")
+
+        # Load configuration from config.json
+        with open("config.json", "r") as f:
+            config = json.load(f)
+        logger.info("Configuration loaded successfully.")
+
+        # Get notification time and days from config
+        notification_time = config.get(
+            "notification_time", 20
+        )  # Default to 20 if not set
+        notification_days = config.get(
+            "notification_days", ["0"]
+        )  # Default to ["0", "1"] if not set
+        logger.info(
+            f"Notification time set to {notification_time}, days: {notification_days}"
+        )
+
+        # Schedule the job using the loaded configuration
+        scheduler.add_job(
+            get_random_card,
+            "cron",
+            hour=notification_time,
+            day_of_week=",".join(notification_days),
+            args=[callback.message, session],
+        )
+        scheduler.start()
+
+        with open("config.json", "r") as f:
+            data = json.load(f)
+
+        data["scheduler_status"] = True
+
+        with open("config.json", "w") as f:
+            json.dump(data, f)
+
+        logger.info("Scheduler started successfully.")
+        await callback.answer("Планировщик включен.")
+        await callback_status_scheduler(callback)
+    except Exception:
+        logger.error("Error in callback_enable_scheduler")
+        logger.error(traceback.format_exc())
+        await callback.message.answer("Произошла ошибка 😞...")
+
+
+@admin_router.callback_query(F.data == "disable_scheduler")
+async def callback_disable_scheduler(callback: CallbackQuery, state: FSMContext):
+    try:
+        logger.info("Disabling scheduler...")
+
+        if scheduler.running:
+            scheduler.remove_all_jobs()
+            scheduler.shutdown(wait=False)
+            logger.info("Scheduler disabled successfully.")
+        else:
+            logger.info("Scheduler was not running.")
+
+        with open("config.json", "r") as f:
+            data = json.load(f)
+
+        data["scheduler_status"] = False
+
+        with open("config.json", "w") as f:
+            json.dump(data, f)
+
+        await callback.answer("Планировщик выключен.")
+        await callback_status_scheduler(callback)
+    except Exception:
+        logger.error("Error in callback_disable_scheduler")
         logger.error(traceback.format_exc())
         await callback.message.answer("Произошла ошибка 😞...")
 
@@ -492,7 +616,7 @@ async def callback_change_time(callback: CallbackQuery, state: FSMContext):
         with open("config.json", "w") as f:
             json.dump(data, f)
 
-        await callback.answer("Время изменено")
+        await callback.answer("Время изменено. Перезапустите планировщик для применения изменений.")
         await callback_admin_features(callback, state)
     except Exception:
         logger.error("Error in callback_change_time")
@@ -549,7 +673,7 @@ async def callback_change_day_status(callback: CallbackQuery, state: FSMContext)
         with open("config.json", "w") as f:
             json.dump(data, f)
 
-        await callback.answer("День изменен")
+        await callback.answer("День изменен. Перезапустите планировщик для применения изменений.")
         await callback_change_days(callback, state)
     except Exception:
         logger.error("Error in callback_change_day_status")
@@ -597,7 +721,7 @@ async def callback_statistics(
             f"Юзернейм: {f'@{user.username}' if user.username else 'Нет юзернейма'}"
         )
         subscription = f"Подписка: {'✅' if user.subscription else '❌'}"
-        last_request = f"Последний запрос: {user.last_request if user.last_request else 'Нет запросов'}"
+        last_request = f"Последний запрос: {user.last_request.strftime('%H:%M %d-%m-%Y') if user.last_request else 'Нет запросов'}"
 
         btns = get_callback_btns(
             btns={
@@ -706,3 +830,49 @@ async def callback_change_limits(message: Message, state: FSMContext):
         logger.error("Error in callback_change_limits")
         logger.error(traceback.format_exc())
         await message.answer("Произошла ошибка 😞...")
+
+
+class ChangeHelp(StatesGroup):
+    help = State()
+
+@admin_router.callback_query(F.data == "edit_help")
+async def callback_edit_help(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(text="Введите текст для помощи", reply_markup=get_callback_btns(btns={"Назад": "admin"}, sizes=(1,)))
+    await state.set_state(ChangeHelp.help)
+
+@admin_router.message(ChangeHelp.help)
+async def callback_change_help(message: Message, state: FSMContext):
+    with open("config.json", "r") as f:
+        data = json.load(f)
+
+    data["help_text"] = message.text
+
+    with open("config.json", "w") as f:
+        json.dump(data, f)
+
+    await message.answer("Текст изменен")
+    await state.clear()
+    await admin_features(message, state)
+
+
+class ChangeStart(StatesGroup):
+    start = State()
+
+@admin_router.callback_query(F.data == "edit_start")
+async def callback_edit_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(text="Введите текст для стартового сообщения", reply_markup=get_callback_btns(btns={"Назад": "admin"}, sizes=(1,)))
+    await state.set_state(ChangeStart.start)
+
+@admin_router.message(ChangeStart.start)
+async def callback_change_start(message: Message, state: FSMContext):
+    with open("config.json", "r") as f:
+        data = json.load(f)
+
+    data["start_text"] = message.text
+
+    with open("config.json", "w") as f:
+        json.dump(data, f)
+
+    await message.answer("Текст изменен")
+    await state.clear()
+    await admin_features(message, state)

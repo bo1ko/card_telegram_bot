@@ -26,6 +26,11 @@ async def start_cmd(message: types.Message, session: AsyncSession):
     try:
         main_menu_btns = await generate_main_menu(message.from_user.id, session)
 
+        with open("config.json", "r") as f:
+            data = json.load(f)
+
+        start_text = data.get("start_text")
+
         user = await orm.orm_read(
             session=session, model=User, tg_id=message.from_user.id
         )
@@ -43,6 +48,19 @@ async def start_cmd(message: types.Message, session: AsyncSession):
             else:
                 await orm.orm_create(session, User, {"tg_id": message.from_user.id})
 
+        await message.answer(text=start_text)
+        await message.answer("Главное меню 👑", reply_markup=main_menu_btns)
+    except Exception:
+        logger.error("Error in start_cmd")
+        logger.error(traceback.format_exc())
+        await message.answer("Произошла ошибка 😞...")
+
+
+@user_router.message(Command("menu"))
+async def manu_cmd(message: types.Message, session: AsyncSession, state: FSMContext):
+    try:
+        main_menu_btns = await generate_main_menu(message.from_user.id, session)
+        await state.clear()
         await message.answer("Главное меню 👑", reply_markup=main_menu_btns)
     except Exception:
         logger.error("Error in start_cmd")
@@ -83,6 +101,8 @@ async def callback_card(callback: types.CallbackQuery, session: AsyncSession):
             session=session, model=User, tg_id=callback.from_user.id, as_iterable=False
         )
         actual_time = datetime.now(timezone(timedelta(hours=2)))
+        # Convert to offset-naive datetime
+        actual_time_naive = actual_time.replace(tzinfo=None)
         free_cards = []
         exiting_cards = user.cards or {}
         random_card = None
@@ -111,7 +131,7 @@ async def callback_card(callback: types.CallbackQuery, session: AsyncSession):
 
         # if in db no cards
         if not all_cards:
-            await callback.message.answer("Карт нету")
+            await callback.answer("Карт нету")
             return
 
         # if user has'nt cards
@@ -146,7 +166,13 @@ async def callback_card(callback: types.CallbackQuery, session: AsyncSession):
             return
 
         await orm.orm_update(
-            session=session, model=User, pk=user.pk, data={"cards": exiting_cards}
+            session=session,
+            model=User,
+            pk=user.pk,
+            data={"cards": exiting_cards, "last_request": actual_time_naive},
+        )
+        logger.info(
+            f"User {user.pk}: Updated last_request to {actual_time.isoformat()}."
         )
 
         photo = FSInputFile(random_card.image, filename="card.jpg")
@@ -209,3 +235,47 @@ async def callback_unsubscribe(
         logger.error("Error in callback_unsubscribe")
         logger.error(traceback.format_exc())
         await callback.message.answer("Произошла ошибка 😞...")
+
+
+# HELP COMMAND FOR MESSAGE
+@user_router.message(Command("help"))
+async def help_cmd(message: types.Message):
+    try:
+        with open("config.json", "r") as f:
+            data = json.load(f)
+
+        help_text = data.get("help_text")
+
+        if str(message.from_user.id) in message.bot.my_admins_list:
+            await message.answer(text=f"{help_text}\n\n<b>Команды для админов</b>\n/admin - Админ панель", parse_mode="HTML")
+        else:
+            await message.answer(help_text, parse_mode="HTML")
+    except Exception:
+        logger.error("Error in help_cmd")
+        logger.error(traceback.format_exc())
+
+
+# HELP COMMAND FOR CALLBACK
+@user_router.callback_query(F.data == "help")
+async def help_cmd(callback: types.CallbackQuery):
+    try:
+        with open("config.json", "r") as f:
+            data = json.load(f)
+
+        help_text = data.get("help_text")
+
+        if str(callback.from_user.id) in callback.bot.my_admins_list:
+            await callback.message.edit_text(
+                text=f"{help_text}\n<b>Команды для админов</b>\n/admin - Админ панель",
+                parse_mode="HTML",
+                reply_markup=get_callback_btns(btns={"Назад ⏪": "menu"}),
+            )
+        else:
+            await callback.message.edit_text(
+                help_text,
+                parse_mode="HTML",
+                reply_markup=get_callback_btns(btns={"Назад ⏪": "menu"}),
+            )
+    except Exception:
+        logger.error("Error in help_cmd")
+        logger.error(traceback.format_exc())

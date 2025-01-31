@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import json
 import os
 
 from aiogram import Bot, Dispatcher
@@ -19,8 +20,26 @@ from core.common.user_cmds_list import private as user_cmds
 
 load_dotenv(find_dotenv())
 
+# Create directories if they don't exist
 os.makedirs("images", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
+
+# Create config.json if it doesn't exist
+if not os.path.exists("config.json"):
+    with open("config.json", "w") as f:
+        json.dump(
+            {
+                "buy_cards_link": "https://www.google.com/",
+                "full_card_link": "https://www.google.com/",
+                "notification_time": 0,
+                "notification_days": ["0"],
+                "cards_limit": 3,
+                "scheduler_status": False,
+                "help_text": "Empty. Заполните вручную",
+                "start_text": "Empty. Заполните вручную",
+            },
+            f,
+        )
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,14 +61,25 @@ dp.include_router(admin_router)
 
 
 async def on_startup(bot):
-
     # await drop_db()
-
     await create_db()
 
 
 async def on_shutdown(bot):
-    print("bot down")
+    logger.info("Bot down")
+
+    with open("config.json", "r") as f:
+        data = json.load(f)
+
+    if data.get("scheduler_status", True):
+        data["scheduler_status"] = False
+
+        with open("config.json", "w") as f:
+            json.dump(data, f)
+
+        logger.info("Scheduler status set to False in config.json")
+    else:
+        logger.info("Scheduler was already set to False in config.json")
 
 
 async def main():

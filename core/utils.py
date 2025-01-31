@@ -25,8 +25,8 @@ async def generate_main_menu(telegram_id: int, session: AsyncSession):
     else:
         full_card_link = "https://example.com/"
 
-    if not user.subscription:
-        sub_text = "📩 Подписаться на ежедневную карту 📩"
+    if user and not user.subscription:
+        sub_text = "🔔 Подписаться на ежедневную карту 🔔"
         sub_callback = "subscribe"
     else:
         sub_text = "❌ Відписатися від щоденної карти ❌"
@@ -36,6 +36,7 @@ async def generate_main_menu(telegram_id: int, session: AsyncSession):
         btns={
             "Карта дня 🔮": "card",
             "Купить карты 🛒": buy_cards_link,
+            "📖 Информация о боте 📖": "help",
             "🃏 Дать полный расклад карт 🃏": full_card_link,
             sub_text: sub_callback,
         },
