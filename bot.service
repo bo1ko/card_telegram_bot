@@ -1,0 +1,12 @@
+[Unit]
+Description=My TG Bot
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/home/username/<dir_name>/.venv/bin/python /home/username/<dir_name>/app.py
+WorkingDirectory=/home/username/<dir_name>
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
