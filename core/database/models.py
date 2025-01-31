@@ -18,7 +18,6 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(100), nullable=True)
     subscription: Mapped[bool] = mapped_column(default=False)
     last_request: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    requests: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
     cards: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
 
 

@@ -9,11 +9,8 @@ from aiogram.enums import ParseMode
 
 from dotenv import find_dotenv, load_dotenv
 
-
 from core.middlewares import DataBaseSession
-
 from core.database.engine import create_db, drop_db, session_maker
-
 from core.handlers.user_private import user_router
 from core.handlers.admin_private import admin_router
 from core.common.admin_cmds_list import set_admin_commands
@@ -62,7 +59,9 @@ async def main():
     dp.update.middleware(DataBaseSession(session_pool=session_maker))
 
     await bot.delete_webhook(drop_pending_updates=True)
-    await bot.set_my_commands(commands=user_cmds, scope=BotCommandScopeAllPrivateChats())
+    await bot.set_my_commands(
+        commands=user_cmds, scope=BotCommandScopeAllPrivateChats()
+    )
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 
