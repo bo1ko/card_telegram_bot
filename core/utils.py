@@ -2,6 +2,7 @@ import json
 import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from bs4 import BeautifulSoup
 
 from core.keyboards import get_inlineMix_btns
 from core.database.models import User
@@ -65,8 +66,10 @@ def clean_html(input_text):
         "pre",
     ]
 
-    # Створення регулярного виразу для видалення всіх тегів, крім дозволених
-    allowed_tags_pattern = "|".join(allowed_tags)
-    clean_text = re.sub(rf"</?(?!{allowed_tags_pattern})\w+[^>]*>", "", input_text)
+    soup = BeautifulSoup(input_text, "html.parser")
 
-    return clean_text
+    for tag in soup.find_all(True):
+        if tag.name not in allowed_tags:
+            tag.unwrap()
+
+    return str(soup)
