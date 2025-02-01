@@ -266,7 +266,7 @@ async def help_cmd(callback: types.CallbackQuery):
 
         if str(callback.from_user.id) in callback.bot.my_admins_list:
             await callback.message.edit_text(
-                text=f"{help_text}\n<b>Команды для админов</b>\n/admin - Админ панель",
+                text=f"{help_text}\n\n<b>Команды для админов</b>\n/admin - Админ панель",
                 parse_mode="HTML",
                 reply_markup=get_callback_btns(btns={"Назад ⏪": "menu"}),
             )

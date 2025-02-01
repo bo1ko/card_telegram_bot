@@ -17,7 +17,9 @@ from core.database.models import User, Card
 from core.database import orm_query as orm
 from core.filters import IsAdmin
 from core.keyboards import get_callback_btns
+from core.utils import clean_html
 from services.scheduler import get_random_card
+
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +81,7 @@ async def callback_edit_cards(
     callback: CallbackQuery, session: AsyncSession, state: FSMContext
 ):
     try:
-        all_cards = await orm.orm_read(session=session, model=Card)
+        all_cards = await orm.orm_read(session=session, model=Card, as_iterable=True)
         btns = {}
         text = "Карточки"
 
@@ -116,7 +118,7 @@ async def callback_edit_cards(
 
 async def edit_cards(message: Message, session: AsyncSession, text: str = None):
     try:
-        all_cards = await orm.orm_read(session=session, model=Card)
+        all_cards = await orm.orm_read(session=session, model=Card, as_iterable=True)
         btns = {}
 
         if not text:
@@ -181,7 +183,10 @@ async def callback_edit_card(
         card = await orm.orm_read(session=session, model=Card, pk=pk)
 
         await callback.answer()
-        await callback.message.answer(text="Введите новое описание")
+        await callback.message.answer(
+            text="Введите новое описание",
+            reply_markup=get_callback_btns(btns={"Назад": "edit_cards"}),
+        )
         await state.set_data({"card": card})
         await state.set_state(EditDesc.description)
     except Exception:
@@ -198,8 +203,9 @@ async def edit_card_description(
     try:
         data = await state.get_data()
         card = data["card"]
+        clean_text = clean_html(message.text)
         await orm.orm_update(
-            session=session, model=Card, pk=card.pk, data={"description": message.text}
+            session=session, model=Card, pk=card.pk, data={"description": clean_text}
         )
         await message.answer("Описание изменено")
         await edit_cards(message, session=session)
@@ -237,7 +243,10 @@ class AddCard(StatesGroup):
 @admin_router.callback_query(F.data == "add_card")
 async def callback_add_card(callback: CallbackQuery, state: FSMContext):
     try:
-        await callback.message.edit_text(text="Введите описание карточки")
+        await callback.message.edit_text(
+            text="Введите описание карточки",
+            reply_markup=get_callback_btns(btns={"Назад": "edit_cards"}),
+        )
         await state.set_state(AddCard.description)
     except Exception:
         logger.error("Error in callback_add_card")
@@ -250,7 +259,10 @@ async def callback_add_card(callback: CallbackQuery, state: FSMContext):
 async def add_card_description(message: Message, state: FSMContext):
     try:
         await state.update_data(description=message.text)
-        await message.answer("Отправьте карточку")
+        await message.answer(
+            "Отправьте карточку",
+            reply_markup=get_callback_btns(btns={"Назад": "edit_cards"}),
+        )
         await state.set_state(AddCard.image)
     except Exception:
         logger.error("Error in add_card_description")
@@ -263,7 +275,7 @@ async def add_card_description(message: Message, state: FSMContext):
 async def add_card_image(message: Message, state: FSMContext, session: AsyncSession):
     try:
         desc = await state.get_value("description")
-
+        clean_desc = clean_html(desc)
         unique_filename = str(uuid.uuid4()) + ".jpg"
         file_path = os.path.join("images", unique_filename)
 
@@ -272,7 +284,7 @@ async def add_card_image(message: Message, state: FSMContext, session: AsyncSess
         )
 
         data = {
-            "description": desc,
+            "description": clean_desc,
             "image": file_path,
         }
 
@@ -616,7 +628,9 @@ async def callback_change_time(callback: CallbackQuery, state: FSMContext):
         with open("config.json", "w") as f:
             json.dump(data, f)
 
-        await callback.answer("Время изменено. Перезапустите планировщик для применения изменений.")
+        await callback.answer(
+            "Время изменено. Перезапустите планировщик для применения изменений."
+        )
         await callback_admin_features(callback, state)
     except Exception:
         logger.error("Error in callback_change_time")
@@ -626,15 +640,27 @@ async def callback_change_time(callback: CallbackQuery, state: FSMContext):
 
 # CHANGE DAYS MENU
 @admin_router.callback_query(F.data == "change_days")
-async def callback_change_days(callback: CallbackQuery, state: FSMContext):
+async def callback_change_days(
+    callback: CallbackQuery, state: FSMContext, loop: bool = False
+):
     try:
-        await state.clear()
+        if loop:
+            data = await state.get_data()
 
-        with open("config.json", "r") as f:
-            data = json.load(f)
+            if data.get("notification_days") is None:
+                await state.clear()
+
+                with open("config.json", "r") as f:
+                    data = json.load(f)
+        else:
+            await state.clear()
+            with open("config.json", "r") as f:
+                data = json.load(f)
+
+            await state.update_data(notification_days=data.get("notification_days"))
 
         days = data.get("notification_days")
-        days_btns = {"Назад": "edit_notifications"}
+        days_btns = {"Назад": "edit_notifications", "Зберегти": "save_days"}
 
         for i, day in enumerate(DAYS):
             if str(i) in days:
@@ -644,7 +670,7 @@ async def callback_change_days(callback: CallbackQuery, state: FSMContext):
 
         btns = get_callback_btns(
             btns=days_btns,
-            sizes=(1, 2),
+            sizes=(1, 1, 2),
         )
 
         await callback.message.edit_text(text="Выберите дни", reply_markup=btns)
@@ -659,26 +685,120 @@ async def callback_change_days(callback: CallbackQuery, state: FSMContext):
 async def callback_change_day_status(callback: CallbackQuery, state: FSMContext):
     try:
         day = callback.data.split("_")[2]
+        data = await state.get_data()
+        notification_days = data.get("notification_days", [])
 
-        with open("config.json", "r") as f:
-            data = json.load(f)
-
-        if data.get("notification_days") is None:
-            data["notification_days"] = [day]
-        elif day not in data["notification_days"]:
-            data["notification_days"].append(day)
+        if day not in notification_days:
+            notification_days.append(day)
         else:
-            data["notification_days"].remove(day)
+            notification_days.remove(day)
 
-        with open("config.json", "w") as f:
-            json.dump(data, f)
+        await state.update_data(notification_days=notification_days)
 
-        await callback.answer("День изменен. Перезапустите планировщик для применения изменений.")
-        await callback_change_days(callback, state)
+        await callback_change_days(callback, state, loop=True)
     except Exception:
         logger.error("Error in callback_change_day_status")
         logger.error(traceback.format_exc())
         await callback.message.answer("Произошла ошибка 😞...")
+
+
+@admin_router.callback_query(F.data == "save_days")
+async def callback_save_days(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        text="Уведомить пользователей о изменениях?",
+        reply_markup=get_callback_btns(
+            btns={
+                "Да": "send_reason",
+                "Нет": "send_notification",
+                "Отменить изменения": "edit_notifications",
+            },
+            sizes=(2, 1),
+        ),
+    )
+
+
+class SendNotification(StatesGroup):
+    reason = State()
+
+
+@admin_router.callback_query(F.data == "send_reason")
+async def callback_send_reason(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        text="Введите причину изменения",
+        reply_markup=get_callback_btns(
+            btns={
+                "Назад": "save_days",
+                "Отменить изменения": "edit_notifications",
+            },
+            sizes=(1,),
+        ),
+    )
+    await state.set_state(SendNotification.reason)
+
+
+@admin_router.message(SendNotification.reason)
+async def callback_send_reason(
+    message: Message, state: FSMContext, session: AsyncSession
+):
+    data = await state.get_data()
+    notification_days = data.get("notification_days")
+    reason = message.text
+    changed_days = ""
+    with open("config.json", "r") as f:
+        current_data = json.load(f)
+
+    users = await orm.orm_read(session=session, model=User, as_iterable=True)
+
+    for i, day in enumerate(DAYS):
+        if str(i) not in notification_days:
+            changed_days += f"{day}, "
+
+    for user in users:
+        await message.bot.send_message(
+            user.tg_id,
+            f"<b><i>УВЕДОМЛЕНИЕ</i></b>\n\nДни когда не будут отправляться карты: {changed_days}\n\n<b>Повод:</b> {reason}",
+        )
+
+    with open("config.json", "w") as f:
+        current_data["notification_days"] = notification_days
+        json.dump(current_data, f)
+
+    await message.answer(
+        "Дни изменены. Перезапустите планировщик для применения изменений."
+    )
+    await admin_features(message, state)
+
+
+@admin_router.callback_query(F.data == "send_notification")
+async def callback_send_notification(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+):
+    data = await state.get_data()
+    notification_days = data.get("notification_days")
+    changed_days_id = []
+    changed_days = ""
+
+    with open("config.json", "r") as f:
+        current_data = json.load(f)
+
+    with open("config.json", "w") as f:
+        current_data["notification_days"] = notification_days
+        json.dump(current_data, f)
+
+    for day in notification_days:
+        if day in current_data.get("notification_days"):
+            continue
+        else:
+            changed_days_id.append(day)
+
+    for i, day in enumerate(DAYS):
+        if str(i) in changed_days_id:
+            changed_days += f"{day}, "
+
+    await callback.message.edit_text(
+        "Дни изменены. Перезапустите планировщик для применения изменений."
+    )
+    await admin_features(callback.message, state)
 
 
 @admin_router.callback_query(F.data == "statistics")
@@ -689,14 +809,14 @@ async def callback_statistics(
         await state.clear()
 
         users = await orm.orm_read(session=session, model=User, as_iterable=True)
-        users_btns = {}
+        users_btns = {
+            "Назад": "admin",
+        }
 
         for user in users:
             users_btns[user.username if user.username else user.telegram_id] = (
                 f"statistics_{user.pk}"
             )
-
-        users_btns["Назад"] = "admin"
 
         await callback.message.edit_text(
             text="Статистика пользователей",
@@ -761,8 +881,10 @@ async def callback_statistics_requests(
         for key, value in sorted_data.items():
             dt = datetime.fromisoformat(value)
             formatted_date = dt.strftime("%H:%M %d-%m-%Y")
-            card = await orm.orm_read(session=session, model=Card, pk=int(key))
-            text += f"{formatted_date}: {card.description[:40]}{'...' if card.description and len(card.description) > 40 else ''}\n"
+            card = await orm.orm_read(session=session, model=Card, pk=int(key), as_iterable=False)
+            
+            if card:
+                text += f"{formatted_date}: {card.description[:40]}{'...' if card.description and len(card.description) > 40 else ''}\n"
 
         await callback.message.edit_text(
             text=text,
@@ -835,17 +957,24 @@ async def callback_change_limits(message: Message, state: FSMContext):
 class ChangeHelp(StatesGroup):
     help = State()
 
+
 @admin_router.callback_query(F.data == "edit_help")
 async def callback_edit_help(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(text="Введите текст для помощи", reply_markup=get_callback_btns(btns={"Назад": "admin"}, sizes=(1,)))
+    await callback.message.edit_text(
+        text="Введите текст для помощи",
+        reply_markup=get_callback_btns(btns={"Назад": "admin"}, sizes=(1,)),
+    )
     await state.set_state(ChangeHelp.help)
+
 
 @admin_router.message(ChangeHelp.help)
 async def callback_change_help(message: Message, state: FSMContext):
+    clean_text = clean_html(message.text)
+    
     with open("config.json", "r") as f:
         data = json.load(f)
 
-    data["help_text"] = message.text
+    data["help_text"] = clean_text
 
     with open("config.json", "w") as f:
         json.dump(data, f)
@@ -858,17 +987,23 @@ async def callback_change_help(message: Message, state: FSMContext):
 class ChangeStart(StatesGroup):
     start = State()
 
+
 @admin_router.callback_query(F.data == "edit_start")
 async def callback_edit_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(text="Введите текст для стартового сообщения", reply_markup=get_callback_btns(btns={"Назад": "admin"}, sizes=(1,)))
+    await callback.message.edit_text(
+        text="Введите текст для стартового сообщения",
+        reply_markup=get_callback_btns(btns={"Назад": "admin"}, sizes=(1,)),
+    )
     await state.set_state(ChangeStart.start)
+
 
 @admin_router.message(ChangeStart.start)
 async def callback_change_start(message: Message, state: FSMContext):
+    clean_text = clean_html(message.text)
     with open("config.json", "r") as f:
         data = json.load(f)
 
-    data["start_text"] = message.text
+    data["start_text"] = clean_text
 
     with open("config.json", "w") as f:
         json.dump(data, f)

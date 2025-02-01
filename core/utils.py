@@ -1,4 +1,5 @@
 import json
+import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,3 +45,28 @@ async def generate_main_menu(telegram_id: int, session: AsyncSession):
     )
 
     return main_menu_btns
+
+
+def clean_html(input_text):
+    allowed_tags = [
+        "b",
+        "strong",
+        "i",
+        "em",
+        "u",
+        "ins",
+        "s",
+        "strike",
+        "del",
+        "span",
+        "tg-spoiler",
+        "a",
+        "code",
+        "pre",
+    ]
+
+    # Створення регулярного виразу для видалення всіх тегів, крім дозволених
+    allowed_tags_pattern = "|".join(allowed_tags)
+    clean_text = re.sub(rf"</?(?!{allowed_tags_pattern})\w+[^>]*>", "", input_text)
+
+    return clean_text
