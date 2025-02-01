@@ -59,17 +59,30 @@ def clean_html(input_text):
         "s",
         "strike",
         "del",
-        "span",
         "tg-spoiler",
-        "a",
         "code",
         "pre",
+        "a",
     ]
+    allowed_attributes = {"a": ["href"]}
 
     soup = BeautifulSoup(input_text, "html.parser")
 
     for tag in soup.find_all(True):
         if tag.name not in allowed_tags:
-            tag.unwrap()
+            if (
+                tag.name == "span"
+                and tag.get("class")
+                and "tg-spoiler" in tag.get("class")
+            ):
+                tag.name = "tg-spoiler"
+            else:
+                tag.unwrap()
+        elif tag.name == "a":
+            tag.attrs = {
+                key: value
+                for key, value in tag.attrs.items()
+                if key in allowed_attributes.get(tag.name, [])
+            }
 
     return str(soup)
