@@ -160,9 +160,14 @@ async def callback_card(callback: CallbackQuery, session: AsyncSession):
         )
 
         await callback.message.delete()
-        await callback.message.answer_photo(
-            photo=photo, caption=card.description, reply_markup=btns
-        )
+        try:
+            await callback.message.answer_photo(
+                photo=photo, caption=card.description, reply_markup=btns
+            )
+        except Exception:
+            await callback.message.answer_photo(
+                photo=photo, caption="Невірний опис", reply_markup=btns
+            )
     except Exception:
         logger.error("Error in callback_card")
         logger.error(traceback.format_exc())
@@ -881,8 +886,10 @@ async def callback_statistics_requests(
         for key, value in sorted_data.items():
             dt = datetime.fromisoformat(value)
             formatted_date = dt.strftime("%H:%M %d-%m-%Y")
-            card = await orm.orm_read(session=session, model=Card, pk=int(key), as_iterable=False)
-            
+            card = await orm.orm_read(
+                session=session, model=Card, pk=int(key), as_iterable=False
+            )
+
             if card:
                 text += f"{formatted_date}: {card.description[:40]}{'...' if card.description and len(card.description) > 40 else ''}\n"
 
@@ -970,7 +977,7 @@ async def callback_edit_help(callback: CallbackQuery, state: FSMContext):
 @admin_router.message(ChangeHelp.help)
 async def callback_change_help(message: Message, state: FSMContext):
     clean_text = clean_html(message.text)
-    
+
     with open("config.json", "r") as f:
         data = json.load(f)
 
