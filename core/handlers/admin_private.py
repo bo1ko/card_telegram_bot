@@ -314,7 +314,7 @@ async def callback_external_links(callback: CallbackQuery, state: FSMContext):
 
         btns = get_callback_btns(
             btns={
-                "Купить карты": "buy_cards_link",
+                "Купить колоду": "buy_cards_link",
                 "Дать полный расклад карт": "full_card_link",
                 "Назад": "admin",
             },
@@ -528,6 +528,7 @@ async def callback_enable_scheduler(
             hour=notification_time,
             day_of_week=",".join(notification_days),
             args=[callback.message, session],
+            timezone="Europe/Kiev",
         )
         scheduler.start()
 

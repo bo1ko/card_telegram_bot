@@ -49,7 +49,7 @@ async def start_cmd(message: types.Message, session: AsyncSession):
                 await orm.orm_create(session, User, {"tg_id": message.from_user.id})
 
         await message.answer(text=start_text)
-        await message.answer("Главное меню 👑", reply_markup=main_menu_btns)
+        await message.answer("Делаем расклад?", reply_markup=main_menu_btns)
     except Exception:
         logger.error("Error in start_cmd")
         logger.error(traceback.format_exc())
@@ -61,7 +61,7 @@ async def manu_cmd(message: types.Message, session: AsyncSession, state: FSMCont
     try:
         main_menu_btns = await generate_main_menu(message.from_user.id, session)
         await state.clear()
-        await message.answer("Главное меню 👑", reply_markup=main_menu_btns)
+        await message.answer("Делаем расклад?", reply_markup=main_menu_btns)
     except Exception:
         logger.error("Error in start_cmd")
         logger.error(traceback.format_exc())
@@ -77,16 +77,7 @@ async def start_callback(
         main_menu_btns = await generate_main_menu(
             callback.from_user.id, session=session
         )
-
-        if callback.message.photo:
-            await callback.answer()
-            await callback.message.answer(
-                "Главное меню 👑", reply_markup=main_menu_btns
-            )
-        else:
-            await callback.message.edit_text(
-                "Главное меню 👑", reply_markup=main_menu_btns
-            )
+        await callback.message.edit_text("Делаем расклад?", reply_markup=main_menu_btns)
     except Exception:
         logger.error("Error in start_callback")
         logger.error(traceback.format_exc())
@@ -126,12 +117,18 @@ async def callback_card(callback: types.CallbackQuery, session: AsyncSession):
             cards_limit = 3
 
         if len(today_elements) >= cards_limit:
-            await callback.answer("Хватит, иди работай!")
+            await callback.message.edit_text(
+                "Воу-воу палехче, слишком много карт, пора и поработать :)",
+                reply_markup=get_callback_btns(btns={"Назад ⏪": "menu"}),
+            )
             return
 
         # if in db no cards
         if not all_cards:
-            await callback.answer("Карт нету")
+            await callback.message.edit_text(
+                "Карт нету",
+                reply_markup=get_callback_btns(btns={"Назад ⏪": "menu"}),
+            )
             return
 
         # if user has'nt cards
@@ -178,11 +175,13 @@ async def callback_card(callback: types.CallbackQuery, session: AsyncSession):
         photo = FSInputFile(random_card.image, filename="card.jpg")
 
         await callback.message.delete()
-        await callback.message.answer_photo(
-            photo=photo,
-            caption=random_card.description,
-            reply_markup=get_callback_btns(btns={"Назад ⏪": "menu"}),
+        await callback.message.answer_photo(photo=photo)
+        await callback.message.answer(text=random_card.description)
+        await callback.message.answer(
+            text="Вернуться в меню?",
+            reply_markup=get_callback_btns(btns={"Да": "menu"}),
         )
+
     except Exception:
         logger.error("Error in callback_card")
         logger.error(traceback.format_exc())
@@ -247,7 +246,10 @@ async def help_cmd(message: types.Message):
         help_text = data.get("help_text")
 
         if str(message.from_user.id) in message.bot.my_admins_list:
-            await message.answer(text=f"{help_text}\n\n<b>Команды для админов</b>\n/admin - Админ панель", parse_mode="HTML")
+            await message.answer(
+                text=f"{help_text}\n\n<b>Команды для админов</b>\n/admin - Админ панель",
+                parse_mode="HTML",
+            )
         else:
             await message.answer(help_text, parse_mode="HTML")
     except Exception:

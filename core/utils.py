@@ -36,8 +36,8 @@ async def generate_main_menu(telegram_id: int, session: AsyncSession):
 
     main_menu_btns = get_inlineMix_btns(
         btns={
-            "Карта дня 🔮": "card",
-            "Купить карты 🛒": buy_cards_link,
+            "Хочу карту дня 🔮": "card",
+            "Купить колоду 🛒": buy_cards_link,
             "📖 Информация о боте 📖": "help",
             "🃏 Дать полный расклад карт 🃏": full_card_link,
             sub_text: sub_callback,

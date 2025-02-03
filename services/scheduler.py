@@ -60,9 +60,9 @@ async def get_random_card(message: Message, session: AsyncSession) -> None:
 
                 photo = FSInputFile(random_card.image, filename="card.jpg")
 
-                await message.answer_photo(
-                    photo=photo,
-                    caption=f"Ежедневная карта 🃏\n\n{random_card.description}",
+                await message.answer_photo(photo=photo)
+                await message.answer(
+                    text=f"Ежедневная карта 🃏\n\n{random_card.description}",
                 )
                 return
             logger.warning(f"User {user.pk}: No free cards available.")
